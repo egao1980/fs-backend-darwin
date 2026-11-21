@@ -1,0 +1,14 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # macOS runs the FSEvents tests; Linux and Windows load the system and
+  # record skips (the :fsevents mechanism is registered but unavailable).
+  test:
+    uses: egao1980/cl-repository/.github/workflows/test-system.yml@main
