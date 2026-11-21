@@ -17,10 +17,11 @@
     (ok (member :sparse steps))))
 
 (deftest-clone-macos clonefile-clone-suite-images
-  ;; In an APFS image, with an HFS+ image as the other volume: every step,
+  ;; In an APFS image, with a second APFS image as the other volume (HFS+ would
+  ;; rename é.txt to its NFD form on copy — cl-stack-pathlib#49): every step,
   ;; :cross-volume included.
   (with-disk-image (apfs :fs "APFS" :size "256m")
-    (with-disk-image (hfs :fs "HFS+" :size "160m")
+    (with-disk-image (hfs :fs "APFS" :size "160m")
       (multiple-value-bind (failures steps)
           (run-clone-suite :clonefile :directory apfs :other-volume hfs)
         (suite-ok failures steps

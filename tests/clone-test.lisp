@@ -196,7 +196,8 @@
           "a matcher → declined")
       (let ((dst2 (sub tmp "dst2/")))
         (with-clonefile-trace (calls)
-          (let ((report (sp:fs-clone-tree *fs* src dst2 :mechanism :clonefile :ignore :auto)))
+          (let ((report (sp:fs-clone-tree *fs* src dst2 :mechanism :clonefile
+                                                  :ignore (sp:parse-ignore '("*.log")))))
             (ok (= (sp:clone-report-cloned report) (length (funcall calls)))
                 "one call per regular file")
             (ok (every (lambda (c) (eq :file (lstat-kind (cdr c)))) (funcall calls))
