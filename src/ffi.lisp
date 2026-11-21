@@ -70,3 +70,77 @@ appeared or vanished under the root.")
     (:darwin "/System/Library/Frameworks/CoreServices.framework/CoreServices"))
   (cffi:use-foreign-library core-foundation)
   (cffi:use-foreign-library core-services))
+
+;;; --- foreign functions (macOS) ------------------------------------------------------
+;;;
+;;; Only what the journal needs. Global CF values (kCFRunLoopDefaultMode,
+;;; kCFTypeArrayCallBacks) are read when a journal is made, never at load
+;;; time, so a saved image does not keep stale addresses.
+
+(defconstant +event-id-since-now+ #xFFFFFFFFFFFFFFFF
+  "kFSEventStreamEventIdSinceNow: a new stream reports events from now on.")
+
+(defconstant +cf-string-encoding-utf8+ #x08000100
+  "kCFStringEncodingUTF8.")
+
+(defconstant +pc-case-sensitive+ 11
+  "_PC_CASE_SENSITIVE (<sys/unistd.h>, Darwin), the pathconf name.")
+
+#+darwin
+(progn
+  ;; CoreFoundation
+  (cffi:defcfun ("CFStringCreateWithCString" %cf-string-create) :pointer
+    (allocator :pointer) (cstring :string) (encoding :uint32))
+  (cffi:defcfun ("CFArrayCreate" %cf-array-create) :pointer
+    (allocator :pointer) (items :pointer) (n-items :long) (callbacks :pointer))
+  (cffi:defcfun ("CFRelease" %cf-release) :void
+    (cf :pointer))
+  (cffi:defcfun ("CFRunLoopGetCurrent" %cf-run-loop-get-current) :pointer)
+  (cffi:defcfun ("CFRunLoopRun" %cf-run-loop-run) :void)
+  (cffi:defcfun ("CFRunLoopStop" %cf-run-loop-stop) :void
+    (run-loop :pointer))
+
+  (defun %cf-type-array-callbacks ()
+    "&kCFTypeArrayCallBacks."
+    (cffi:foreign-symbol-pointer "kCFTypeArrayCallBacks" :library 'core-foundation))
+
+  (defun %cf-run-loop-default-mode ()
+    "The CFStringRef kCFRunLoopDefaultMode."
+    (cffi:mem-ref (cffi:foreign-symbol-pointer "kCFRunLoopDefaultMode" :library 'core-foundation)
+                  :pointer))
+
+  ;; CoreServices (FSEvents)
+  (cffi:defcstruct fsevent-stream-context
+    (version :long)                     ; CFIndex, 0
+    (info :pointer)                     ; the journal's registry id
+    (retain :pointer)
+    (release :pointer)
+    (copy-description :pointer))
+
+  (cffi:defcfun ("FSEventStreamCreate" %fsevent-stream-create) :pointer
+    (allocator :pointer) (callback :pointer) (context :pointer)
+    (paths-to-watch :pointer) (since-when :uint64) (latency :double) (flags :uint32))
+  (cffi:defcfun ("FSEventStreamScheduleWithRunLoop" %fsevent-stream-schedule-with-run-loop) :void
+    (stream :pointer) (run-loop :pointer) (run-loop-mode :pointer))
+  (cffi:defcfun ("FSEventStreamStart" %fsevent-stream-start) :uint8 ; Boolean
+    (stream :pointer))
+  (cffi:defcfun ("FSEventStreamFlushSync" %fsevent-stream-flush-sync) :void
+    (stream :pointer))
+  (cffi:defcfun ("FSEventStreamStop" %fsevent-stream-stop) :void
+    (stream :pointer))
+  (cffi:defcfun ("FSEventStreamInvalidate" %fsevent-stream-invalidate) :void
+    (stream :pointer))
+  (cffi:defcfun ("FSEventStreamRelease" %fsevent-stream-release) :void
+    (stream :pointer))
+
+  ;; libc
+  (cffi:defcfun ("pathconf" %pathconf) :long
+    (path :string) (name :int)))
+
+(defmacro with-foreign-float-traps-masked (&body body)
+  "Run BODY, which calls into CoreFoundation / FSEvents, with IEEE float
+traps masked: C code is entitled to produce inexact or infinite results
+(CFRunLoopRun's 1e10 s timeout, the latency arithmetic) that SBCL's
+default enabled traps would turn into Lisp errors."
+  #+sbcl `(sb-int:with-float-traps-masked (:invalid :inexact :overflow :divide-by-zero) ,@body)
+  #-sbcl `(progn ,@body))
