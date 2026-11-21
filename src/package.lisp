@@ -51,4 +51,18 @@
    #:+event-flag-item-is-hardlink+
    #:+event-flag-item-is-last-hardlink+
    #:+event-flag-item-cloned+
-   #:+incomplete-event-flags+))
+   #:+incomplete-event-flags+
+   ;; R4c-1: APFS clones (:clonefile)
+   #:+clonefile-rank+
+   #:clonefile-available-p
+   #:clonefile-file
+   #:clonefile-tree
+   #:volume-supports-clone-p
+   #:volume-device
+   #:clonefile-error
+   #:*clonefile-trace*
+   #:+clone-nofollow+
+   #:+clone-noownercopy+
+   #:+vol-cap-int-clone+
+   #:+attr-vol-info+
+   #:+attr-vol-capabilities+))

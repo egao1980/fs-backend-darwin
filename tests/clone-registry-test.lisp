@@ -1,0 +1,62 @@
+(in-package #:fs-backend-darwin/tests)
+
+;;; R4c-1: :clonefile registration, constants and availability plumbing
+;;; (every OS).
+
+(deftest clonefile-registered
+  (let ((names (sp:clone-mechanisms)))
+    (ok (member :clonefile names) "loading fs-backend-darwin registers :clonefile")
+    (ok (eq :copy (car (last names))) ":copy is always last")
+    (ok (< (position :clonefile names) (position :copy names)) ":clonefile ranks above :copy")
+    (ok (member :fsevents (sp:watch-mechanisms)) "beside the :fsevents journal"))
+  (ok (= 100 +clonefile-rank+))
+  (ok (= #x0001 +clone-nofollow+))
+  (ok (= #x0002 +clone-noownercopy+))
+  (ok (= #x00010000 +vol-cap-int-clone+))
+  (ok (= #x80000000 +attr-vol-info+))
+  (ok (= #x00020000 +attr-vol-capabilities+))
+  (ok (null *clonefile-trace*) "no trace by default"))
+
+(deftest clonefile-error-condition
+  (ok (subtypep 'clonefile-error 'sp:clone-error))
+  (ok (subtypep 'clonefile-error 'sp:path-error))
+  (let ((c (make-condition 'clonefile-error :path #p"/x" :operation "clonefile" :code 13)))
+    (ok (eq :clonefile (sp:clone-error-mechanism c)) "the mechanism slot defaults to :clonefile")
+    (ok (equal "clonefile" (sp:clone-error-operation c)))
+    (ok (eql 13 (sp:clone-error-code c)))
+    (ok (stringp (princ-to-string c)))))
+
+(deftest clonefile-memory-filesystem
+  (let ((memory (sp:make-memory-filesystem)))
+    (sp:with-filesystem (memory)
+      (sp:mkdir "/w/src" :parents t)
+      (sp:write-text "/w/src/a.txt" "a"))
+    (let ((expected (if (macos-p) :unsupported-filesystem :unavailable)))
+      (ok (equal (list nil expected)
+                 (multiple-value-list (clonefile-available-p memory #p"/w/src/" #p"/w/")))
+          "a memory filesystem cannot clone (off macOS: :unavailable comes first)")
+      (ok (equal '(:copy) (sp:clone-mechanisms memory #p"/w/src/" #p"/w/")))
+      (ok (equal (list nil expected)
+                 (multiple-value-list (sp:fs-clone-supported-p memory #p"/w/src/"))))
+      (let ((report (sp:fs-clone-tree memory #p"/w/src/" #p"/w/dst/")))
+        (ok (eq :copy (sp:clone-report-mechanism report)))
+        (ok (eq expected (sp:clone-report-reason report)))
+        (ok (equal "a" (sp:with-filesystem (memory) (sp:read-text "/w/dst/a.txt"))))))))
+
+(deftest clonefile-off-macos
+  (if (macos-p)
+      (skip "off-macOS behaviour: checked on Linux and Windows")
+      (with-work-dir (dir)
+        (put dir "src/a.txt" "a")
+        (let ((src (sub dir "src/"))
+              (dst (sub dir "dst/")))
+          (ok (equal '(nil :unavailable) (multiple-value-list (clonefile-available-p *fs* src dir))))
+          (ok (equal '(:copy) (sp:clone-mechanisms *fs* src dir)) ":clonefile is not available")
+          (ok (signals (sp:fs-clone-tree *fs* src dst :mechanism :clonefile) 'sp:unsupported-operation))
+          (ok (not (uiop:directory-exists-p dst)) "the refusal created nothing")
+          (let ((report (sp:fs-clone-tree *fs* src dst)))
+            (ok (eq :copy (sp:clone-report-mechanism report)) ":auto copies")
+            (ok (eq :unavailable (sp:clone-report-reason report))))
+          (ok (signals (clonefile-file *fs* (sub dir "src/a.txt") (sub dir "b.txt")) 'clonefile-error))
+          (ok (signals (volume-device dir) 'clonefile-error))
+          (ok (signals (volume-supports-clone-p dir) 'clonefile-error))))))
